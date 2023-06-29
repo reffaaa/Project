@@ -1,0 +1,318 @@
+library(readxl)
+
+#Input Data
+data<-read_excel("D:/BISMILLAH LULUS/BISMILLAH/DATA.xlsx")
+View(data)
+n=length(data$Y1) 
+
+#Rumus Invers
+inv<-function(x,eps=1e-006)
+{
+  x<-as.matrix(x)
+  xsvd<-svd(x)
+  dgn<-xsvd$d[xsvd$d>eps]
+  if(length(dgn)==1)
+  {
+    xp<-as.matrix(xsvd$v[,1])%*%t(as.matrix(xsvd$u[,1])/dgn)
+  }else
+  {
+    xp<-xsvd$v[,1:length(dgn)]%*%diag(1/dgn)%*%t(xsvd$u[,1:length(dgn)])
+  }
+  return(xp)
+}
+
+#Fungsi Truncated
+trun<-function(pred,knot,orde)
+{
+  pred[pred<knot]<-knot 
+  tc<-(pred-knot)^orde
+  return(tc)
+}
+
+#Pemodelan dengan Pembobot
+psplinew<-function(data)
+{
+  #Parameter Pemulus yang Digunakan
+  lam<-matrix(nrow=46,ncol=1)
+  for(i in 1:46)
+  {
+    lam[i,1]=(1.5^(i-1))/(10^8)
+  }
+  
+  kolom=length(data[1,]) 
+  q=ncol(data)-2 
+  k<-rep(0,q) 
+  orde1<-rep(0,q) 
+  orde2<-rep(0,q) 
+  z<-rep(0,q) 
+  lr<-rep(0,q) 
+  
+  #Menginput Orde dan Banyak Titik Knot
+  for (i in 1:q)
+  {
+    cat("\nInput Orde Respon 1 Prediktor ke-",i," = ")
+    orde1[i]<-as.numeric(readline(" "))
+    cat("Input Orde Respon 2 Prediktor ke-",i," = ")
+    orde2[i]<-as.numeric(readline(" "))
+    cat("Input Banyak Knot Prediktor ke-",i," = ")
+    k[i]<-as.numeric(readline(" "))
+    lr[i]<-k[i]+2
+    z[i]<-k[i]+1
+  }
+  
+  dataurut<-matrix(0,n,q) 
+  t<-matrix(0,n,q) 
+  RR<-matrix(0,max(k),q) 
+  prediktor=data[3:kolom] 
+  dataA=as.matrix(prediktor)
+  p<-cbind(orde1,orde2) 
+  r<-matrix(0,max(lr),q) 
+  R<-matrix(0,(max(lr)-1),q) 
+  
+  #Untuk Memperoleh Kuantil
+  for(i in 1:q)
+  {
+    dataurut[,i]<-sort(dataA[,i])
+    t[,i]<-dataurut[,i]
+    if(lr[i]<max(lr))
+    {
+      r[1:lr[i],i]<-quantile(unique(t[,i]),seq(0,1,by=1/z[i]))
+      r[(lr[i]+1):max(lr),i]<-0
+    }else{
+      r[,i]<-quantile(unique(t[,i]),seq(0,1,by=1/z[i]))
+    }
+    R[,i]<-r[-lr[i],i] 
+    RR[,i]<-R[-1,i] 
+  }
+  
+  #Menulis Orde dan Titik knot untuk Setiap Prediktor
+  for(i in 1:q) 
+  {
+    cat("\nPrediktor ke-",i)
+    cat("\nOrde respon 1:",p[i,1],"; Orde respon 2:",p[i,2],"\n")
+    for(j in 1:k[i])
+    {
+      cat("titik knot [",j,"] = ",RR[j,i],"\n")
+    }
+  }
+  
+  dat1<-as.matrix(data[,1])
+  dat2<-as.matrix(data[,2])
+  y<-rbind(dat1,dat2)
+  N=length(y)
+  nlam<-length(lam) 
+  GCV<-rep(0,nlam) 
+  MSE<-rep(0,nlam) 
+  
+  #matriks X
+  for(r in 1:nlam)
+  {
+    X1<-matrix(0,n,(sum(p[,1])+sum(k)))
+    for(u in 1:q)
+    {
+      x11<-matrix(0,n,(p[u,1]))
+      x21<-matrix(0,n,(k[u]))
+      for(s in 1:p[u,1])
+      {
+        x11[,s]<-dataA[,u]^(s)
+        x11[,(p[u,1])]<-dataA[,u]^(p[u,1])
+      }
+      for(j in 1:k[u]) 
+      {
+        x21[,j]<-trun(dataA[,u],RR[j,u],p[u,1])
+      }
+      if(u==1)
+      {
+        X1[,1:(p[u,1]+k[u])]<-cbind(x11,x21)
+      }else{
+        X1[,((sum(p[1:(u-1),1])+sum(k[1:(u-1)])+1):(sum(p[1:(u),1])+sum(k[1:(u)])))]<-cbind(x11,x21)
+      }
+    }
+    X2<-matrix(0,n,(sum(p[,2])+sum(k)))
+    for(u in 1:q)
+    {
+      x12<-matrix(0,n,(p[u,2]))
+      x22<-matrix(0,n,(k[u]))
+      for(s in 1:p[u,2])
+      {
+        x12[,s]<-dataA[,u]^(s)
+        x12[,(p[u,2])]<-dataA[,u]^(p[u,2])
+      }
+      for(j in 1:k[u])
+      {
+        x22[,j]<-trun(dataA[,u],RR[j,u],p[u,2])
+      }
+      if(u==1)
+      {
+        X2[,1:(p[u,2]+k[u])]<-cbind(x12,x22)
+      }else{
+        X2[,((sum(p[1:(u-1),2])+sum(k[1:(u-1)])+1):(sum(p[1:(u),2])+sum(k[1:(u)])))]<-cbind(x12,x22)
+      }
+    }
+    
+    XX<-rep(1,n) 
+    XA<-cbind(XX,X1)
+    XB<-cbind(XX,X2)
+    XC<-matrix(0,n,((sum(p[,2])+sum(k))+1)) 
+    XD<-matrix(0,n,((sum(p[,1])+sum(k))+1)) 
+    AX<-cbind(XA,XC)
+    BX<-cbind(XD,XB)
+    X<-rbind(AX,BX) 
+    
+    #matriks D
+    D1<-rep(0,(sum(p[,1])+sum(k))) 
+    D2<-rep(0,(sum(p[,2])+sum(k)))
+    for(i in 1:q)
+    {
+      d1<-rep(0,(p[i,1]))
+      for(j in 1:(p[i,1]))
+      {
+        d1[j]<-0
+      }
+      d2<-rep(0,(p[i,2]))
+      for(j in 1:(p[i,2]))
+      {
+        d2[j]<-0
+      }
+      d3<-rep(0,(k[i]))
+      for(j in 1:k[i])
+      {
+        d3[j]<-1
+      }
+      if(i==1)
+      {
+        D1[1:((p[i,1])+(k[i]))]<-c(d1,d3)
+        D2[1:((p[i,2])+(k[i]))]<-c(d2,d3)
+      }else{
+        D1[(sum(p[1:(i-1),1])+sum(k[1:i-1])+1):(sum(p[1:i,1])+sum(k[1:i]))]<-c(d1,d3)
+        D2[(sum(p[1:(i-1),2])+sum(k[1:i-1])+1):(sum(p[1:i,2])+sum(k[1:i]))]<-c(d2,d3)
+      }
+    }
+    DD1<-c(0,D1)
+    DD2<-c(0,D2)
+    d0<-c(DD1,DD2)
+    D<-diag(d0)
+    A<-matrix(0,n+n,n+n)
+    A<-X%*%inv(t(X)%*%X+(lam[r]*D))%*%t(X)
+    ytopi<-A%*%y
+    MSE[r]<-(t(y-ytopi)%*%(y-ytopi))/N
+    GCV[r]<-MSE[r]/(1-((1/N)*sum(diag(A))))^2
+  }
+  cat("\nNilai GCV untuk Setiap Lambda\n")
+  mlam<-cbind(lam,GCV)
+  print(mlam)
+  GCVmin<-min(GCV)
+  bopt<-mlam[mlam[,2]==GCVmin,1]
+  cat("Nilai GCV minimum = ",GCVmin,"\n")
+  cat("Nilai Lambda Optimal saat GCV minimum = ",bopt,"\n")
+  AAUW<-matrix(0,n+n,n+n)
+  AAUW<-X%*%inv(t(X)%*%X+(bopt*D))%*%t(X)
+  ytopiUW<-AAUW%*%y
+  erUW<-y-ytopiUW
+  ERUW<-matrix(0,n,2)
+  ERUW[,1]<-erUW[1:n]
+  ERUW[,2]<-erUW[(n+1):(2*n)]
+  cat("\n\nHasil estimasi:\n\ty topi\t\tError\n")
+  eeUW<-cbind(ytopiUW,erUW)
+  print(eeUW)
+  
+  #Matriks Pembobot
+  vr1UW<-rep(0,n)
+  vr2UW<-rep(0,n)
+  covrUW<-rep(0,n)
+  vrUW<-var(ERUW)
+  invrUW<-solve(vrUW)
+  cat("\nNilai Varians dan Kovarians:\n")
+  print(vrUW)
+  cat("\nNilai Invers Varians dan Kovarians:\n")
+  print(invrUW)
+  vr1UW<-rep(vrUW[1,1],n)
+  vr2UW<-rep(vrUW[2,2],n)
+  covrUW<-rep(vrUW[1,2],n)
+  AUW<-diag(vr1UW,n)
+  BUW<-diag(covrUW,n)
+  CUW<-BUW
+  DvUW<-diag(vr2UW,n)
+  AAUW<-cbind(AUW,BUW)
+  BBUW<-cbind(CUW,DvUW)
+  UUW<-rbind(AAUW,BBUW)
+  WUW<-solve(UUW)
+  
+  #Parameter Pemulus yang Digunakan
+  lamb<-matrix(nrow=46,ncol=1)
+  for(i in 1:46)
+  {
+    lamb[i,1]=(1.5^(i-1))/(10^8)
+  }
+  
+  nlamb<-length(lamb) 
+  GCVb<-rep(0,nlamb) 
+  MSEb<-rep(0,nlamb)
+  for(r in 1:nlamb)
+  {
+    Ab<-matrix(0,n+n,n+n)
+    Ab<-X%*%inv(t(X)%*%WUW%*%X+(lamb[r]*D))%*%t(X)%*%WUW
+    ytopib<-Ab%*%y
+    MSEb[r]<-(t(y-ytopib)%*%(y-ytopib))/N
+    GCVb[r]<-MSEb[r]/(1-((1/N)*sum(diag(Ab))))^2
+  }
+  cat("\nNilai GCV untuk Setiap Lambda\n")
+  mlamb<-cbind(lamb,GCVb)
+  print(mlamb)
+  GCVminb<-min(GCVb)
+  boptb<-mlamb[mlamb[,2]==GCVminb,1]
+  cat("Nilai GCV minimum = ",GCVminb,"\n")
+  cat("Nilai Lambda Optimal saat GCV minimum = ",boptb,"\n")
+  AAW<-matrix(0,n+n,n+n)
+  AAW<-X%*%inv(t(X)%*%WUW%*%X+(boptb*D))%*%t(X)%*%WUW
+  betaW<-inv(t(X)%*%WUW%*%X+(boptb*D))%*%t(X)%*%WUW%*%y
+  
+  cat("\nPenduga Parameter:")
+  for(m in 1:((sum(p[,1])+sum(k))+1))
+  {
+    cat("\nNilai Beta-topi [",m-1,"] Model Respon 1 = ",format(betaW[m]))
+  }
+  for(m in ((sum(p[,1])+sum(k))+2):(sum(p)+(2*sum(k))+2))
+  {
+    cat("\nNilai Beta-topi [",m-1-((sum(p[,1])+sum(k))+1),"] Model Respon 2 = ",format(betaW[m]))
+  }
+  
+  cat("\n\nHasil estimasi:\n\ty topi\t\tError\n")
+  ytopiiW<-AAW%*%y
+  ytopiiW12<-matrix(0,n,2)
+  ytopiiW12[,1]<-ytopiiW[1:n]
+  ytopiiW12[,2]<-ytopiiW[(n+1):(2*n)]
+  JKTW1<-t(dat1-mean(dat1))%*%(dat1-mean(dat1))
+  JKGW1<-t(dat1-ytopiiW12[,1])%*%(dat1-ytopiiW12[,1])
+  JKTW2<-t(dat2-mean(dat2))%*%(dat2-mean(dat2))
+  JKGW2<-t(dat2-ytopiiW12[,2])%*%(dat2-ytopiiW12[,2])
+  errorW<-y-ytopiiW
+  eeW<-cbind(ytopiiW,errorW)
+  print(eeW)
+  
+  diagAAW<-sum(diag(AAW))
+  MSEWW<-(t(y-ytopiiW)%*%(y-ytopiiW))/N
+  GCVWW<-MSEWW/(1-((1/N)*sum(diag(AAW))))^2
+  cat("\nGCV =",GCVWW,"\n")
+  
+  JKTW<-JKTW1+JKTW2
+  JKGW<-JKGW1+JKGW2
+  RKW<-1-(JKGW/JKTW)
+  cat("R-Square =",RKW,"\n")  
+  #Plot Prediksi
+  datap<-as.matrix(data)
+  urut<-c(1:n)
+  y1pred<-ytopiiW[1:n]
+  y2pred<-ytopiiW[(n+1):(2*n)]
+  ytpred<-cbind(y1pred,y2pred)
+  
+  for(rrr in 1:2)
+  {
+    win.graph()
+    plot(urut,datap[,rrr],xlim=c(min(urut),max(urut)),ylim=c(min(c(datap[,rrr],ytpred[,rrr])),max(c(datap[,rrr],ytpred[,rrr]))),xlab="Unit Observasi",ylab="Respon")
+    par(new=T)
+    plot(urut,ytpred[,rrr],type="l",xlim=c(min(urut),max(urut)),ylim=c(min(c(datap[,rrr],ytpred[,rrr])),max(c(datap[,rrr],ytpred[,rrr]))),xlab="Unit Observasi",ylab="Respon")
+    title("Plot Estimasi",sub=paste("\n*Plot Estimasi untuk Respon ke-",rrr),cex.sub=0.75,font.sub=4,col.sub="red")
+  }
+}
+psplinew(data)
